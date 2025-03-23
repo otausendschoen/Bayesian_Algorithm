@@ -1,0 +1,27 @@
+---
+title: "Project"
+author: "Oliver, Marvin, Victor"
+date: "2025-03-23"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+```{r}
+library(rstanarm)
+library(arm)
+
+data("radon")
+
+
+head(radon)
+
+
+write.csv(radon, "radon_exported.csv", row.names = FALSE)
+
+```
+
