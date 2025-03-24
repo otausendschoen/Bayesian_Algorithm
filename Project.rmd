@@ -1,27 +1,356 @@
 ---
-title: "Project"
-author: "Oliver, Marvin, Victor"
-date: "2025-03-23"
+title: "Hierarchical Bayesian Analysis of Radon Data: An Enhanced Hamiltonian Monte Carlo Approach"
+author: "Oliver Tausendschön, Marvin Ernst, Victor Sobottka"
+date: "`r format(Sys.time(), '%B %e, %Y')`"
 output: html_document
+#bibliography: bibliography.bib
 ---
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+```{r setup, cache=FALSE, echo=FALSE, results='hide', message=FALSE}
+library(knitr)
+opts_chunk$set(fig.align="center",
+               comment="",
+               collapse=TRUE)
 ```
 
-## R Markdown
+**Probabilistic Inference in Machine Learning. MSc in Data Science Methodology. Barcelona School of Economics.**
 
+Supervisor: Prof. Lorenzo Cappello, PhD
+
+*Importing the relevant libraries:*
 ```{r}
 library(rstanarm)
 library(arm)
-
-data("radon")
-
-
-head(radon)
-
-
-write.csv(radon, "radon_exported.csv", row.names = FALSE)
-
+library(ggplot2)
+library(dplyr)
+library(rstan)
+library(bayesplot)
 ```
+
+We set options for rstan to use multiple cores for faster computation:
+```{r}
+rstan_options(auto_write = TRUE)
+options(mc.cores = parallel::detectCores())
+```
+
+
+Clear the environment:
+```{r}
+rm(list=ls())
+```
+
+
+# *Abstract*
+
+[]: # Here we will write a brief summary of the project here, outlining the main objectives, methodology, and key findings -alright?
+
+
+# 1. Introduction
+
+[]: # see this below more for us to get a better idea of our goal
+
+In this project, we perform a hierarchical Bayesian analysis of the radon dataset. Our objective is to explore the radon levels in houses across various counties and understand how the levels vary both within and between counties. Inspired by Gelman and Hill’s work on hierarchical models, we build on this foundation by implementing an enhanced Hamiltonian Monte Carlo approach in Stan. This method is expected to provide efficient and robust posterior inference for our multilevel model.
+
+
+# 2. Exploring the Data
+
+In this section, we explore the radon dataset to understand its structure and key variables.
+
+### Importing and Inspecting the Data
+
+First, we load the radon dataset:
+```{r}
+data("radon")
+```
+
+Let’s inspect the first few rows:
+```{r}
+head(radon)
+```
+The dataset contains the following variables: 
+
+- $floor$: Indicates whether the measurement was taken in a basement (coded as 0) or on an upper floor (coded as 1).
+
+- $county$: Identifies the county for each observation.
+
+- $log_radon$: The natural logarithm of the radon measurement. This transformation is applied to stabilize variance and approach normality in the distribution of radon levels.
+
+- $log_uranium$: The natural logarithm of the uranium measurement. Uranium concentration in the soil is considered a potential predictor of radon levels, as radon is a decay product of uranium.
+
+We also check the dimensions of the dataset:
+```{r}
+dim(radon)
+```
+This dataset consists of 919 observations.
+
+### Distribution of Radon Levels
+
+To understand the distribution of radon levels, we visualize the histogram of the log-transformed radon measurements:
+```{r}
+ggplot(radon, aes(x = log_radon)) + 
+  geom_histogram(bins = 30, fill = "skyblue", color = "black") +
+  labs(title = "Distribution of Log Radon Levels", x = "Log Radon", y = "Frequency")
+```
+The distribution of log-transformed radon levels is roughly unimodal, centered around 1 to 2 on the log scale, and shows a moderate right tail. The log transformation reduces skew compared to raw radon measurements and helps stabilize variance, making it more amenable to hierarchical modeling.
+
+### County-Level Differences
+
+Next, we explore how radon levels vary by county. A boxplot of log_radon across counties provides a clear visualization of the differences:
+```{r}
+ggplot(radon, aes(x = factor(county), y = log_radon)) + 
+  geom_boxplot(fill = "lightgreen", color = "black") +
+  labs(title = "Radon Levels by County", x = "County", y = "Log Radon") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+```
+There is clear variation in log radon levels across counties, with some counties showing higher or lower median values than others. Within each county, there is also notable spread in the data. This suggests both between-county and within-county variability and reinforces the need for a hierarchical modeling approach that can capture these different levels of variation.
+
+Additionally, we also compute and plot the mean log radon level for each county:
+```{r}
+county_summary <- radon %>%
+  group_by(county) %>%
+  summarise(mean_log_radon = mean(log_radon, na.rm = TRUE),
+            n = n())
+
+ggplot(county_summary, aes(x = reorder(county, mean_log_radon), y = mean_log_radon)) +
+  geom_point() +
+  coord_flip() +
+  scale_x_discrete(expand = expansion(mult = c(0.05, 0.05))) +
+  labs(title = "Mean Log Radon Levels by County",
+       x = "County",
+       y = "Mean Log Radon") +
+  theme_minimal() +
+  theme(axis.text.y = element_text(size = 4))
+```
+Again, this shows that average radon levels vary noticeably across counties, with some counties having much lower mean log radon than others. The clear gradient from left to right indicates substantial between-county variation, which supports using a hierarchical model to capture these differences alongside the within-county variability.
+
+### Exploring Relevant Predictors
+
+An important predictor in our dataset is the $floor$ variable, which indicates if the measurement is from a basement (0) or an upper floor (1). We examine how radon levels differ based on this predictor:
+```{r}
+ggplot(radon, aes(x = factor(floor), y = log_radon)) + 
+  geom_boxplot(fill = "orange", color = "black") +
+  labs(title = "Radon Levels by Floor (Basement vs Upper Floor)", 
+       x = "Floor (0 = Basement, 1 = Upper Floor)", y = "Log Radon")
+```
+We can see that homes measured in the basement tend to have higher radon levels than those measured on an upper floor. Although there is overlap between the two groups, the boxplot shows a higher median and upper quartile for basement measurements, which aligns with the idea that radon gas often enters through the ground and accumulates more in lower levels of a building.
+
+*Note:* Additionally, including log_uranium as a predictor in the model allows us to account for potential covariate effects that might explain some of the variability in radon levels.
+
+### Identifying the Hierarchical Structure
+
+The radon data are naturally grouped by county, meaning that multiple observations (houses) are nested within each county. This leads to two sources of variability:
+
+-	**Within-County Variability:** Variation in radon levels among houses within the same county.
+
+-	**Between-County Variability:** Variation in the average radon level from one county to another.
+
+To further illustrate this structure, we summarize key statistics by county:
+```{r}
+county_stats <- radon %>%
+  group_by(county) %>%
+  summarise(n = n(), 
+            mean_log_radon = mean(log_radon, na.rm = TRUE), 
+            sd_log_radon = sd(log_radon, na.rm = TRUE))
+county_stats
+```
+The table shows that each of the 85 counties has a different number of observations (n) and distinct mean and standard deviation of log radon levels. Some counties have very few data points (e.g., 3 or 4), while others have many more (e.g., 52). The mean log radon values also vary considerably across counties, as do their standard deviations. This variation in both sample size and radon levels by county underscores the need for a hierarchical model that can account for county-to-county differences (random effects) while borrowing strength across counties.
+
+# 3. Model Specifications
+
+### Hierarchical Model Formulation
+
+We aim to model the log-transformed radon level $y_{ij}$ for house $i$ in county $j$. We include a fixed effect for whether the measurement was taken in the basement (0) or on an upper floor (1). In addition, each county has its own intercept, reflecting the idea that some counties may have generally higher or lower radon levels. Note that this model is inspired by the hierarchical models presented by Gelman and Hill (2007). We can write this as:
+
+$$
+\begin{aligned}
+y_{ij} &\sim \mathcal{N}(\alpha_j + \beta \, x_{ij}, \sigma^2), \\[6pt]
+\alpha_j &\sim \mathcal{N}(\mu_\alpha, \tau^2),
+\end{aligned}
+$$
+where:
+
+-	$y_{ij}$ is the log radon measurement for house $i$ in county $j$.
+
+-	$x_{ij}$ is the floor variable (0 = basement, 1 = upper floor).
+
+-	$\alpha_j$ is the county-specific intercept, which follows a normal distribution centered at $\mu_\alpha$ with standard deviation $\tau$.
+
+-	$\beta$ is the fixed effect for the floor predictor.
+
+-	$\sigma$ is the within-county (house-level) residual standard deviation.
+
+-	$\mu_\alpha$ is the overall (global) intercept across all counties.
+
+-	$\tau$ captures the between-county variability.
+
+According to Papaspiliopoulos, Roberts, and Sköld (2003), non-centered parameterization can improve sampling efficiency in hierarchical models. Instead of sampling $\alpha_j$ directly, we introduce a latent variable $\alpha_{\text{raw}, j}$ that follows a standard normal, and then transform it:
+
+$$\alpha_j = \mu_\alpha + \alpha_{\text{raw}, j} \cdot \tau.$$
+
+### Goal of Bayesian Inference
+
+The goal of this Bayesian hierarchical model is to estimate the posterior distributions of all unknown parameters:
+
+-	$\beta$ (effect of basement vs. upper floor),
+
+-	$\mu_\alpha$ (overall average intercept),
+
+-	$\tau$ (between-county variability),
+
+-	$\sigma$ (within-county variability), and
+
+-	each county-specific intercept $\alpha_j$.
+
+By estimating these posterior distributions, we can quantify both the uncertainty at the county level (how counties differ from one another) and the uncertainty at the house level (residual variability around each county’s intercept).
+
+*Note:* We implemented the above described hierarchical model using non-centered parameterization in the file *radon_model.stan*.
+
+# 4. Sampling and Diagnostics
+
+In this section, we load our Stan model (saved as radon_model.stan), prepare the data for modeling, run the posterior sampler using Hamiltonian Monte Carlo (HMC) via the No-U-Turn Sampler (NUTS), and perform several diagnostic checks. NUTS is particularly effective for hierarchical models, as it uses gradient information to efficiently explore high-dimensional posterior distributions.
+
+### Data Preparation for Stan
+
+We first prepare the data in a list that matches the format expected by the Stan model. Note that we convert the county variable to an integer to serve as an index for the hierarchical structure.
+```{r}
+radon_data <- list(
+  N = nrow(radon),
+  J = length(unique(radon$county)),
+  county = as.integer(radon$county),
+  y = radon$log_radon,
+  x = radon$floor
+)
+print(radon_data)
+```
+
+### Running the Stan Sampler
+
+We run our model using the No-U-Turn Sampler (NUTS), an advanced variant of Hamiltonian Monte Carlo (HMC). NUTS leverages gradient information from the posterior to efficiently navigate high-dimensional parameter spaces. It adaptively determines the optimal path length (i.e., the number of leapfrog steps), thereby avoiding unnecessary computations and manual tuning. This automatic adaptation helps ensure that the sampler explores the posterior distribution thoroughly, leading to better convergence and improved effective sample sizes. In our analysis, we begin with a baseline setup and aim to further refine the sampler in the subsequent parts. 
+
+We now run our Stan model using 4 chains with 2000 iterations each (1000 warmup iterations and 1000 sampling iterations):
+```{r}
+fit <- stan(file = "radon_model.stan",
+            data = radon_data,
+            iter = 2000,
+            warmup = 1000,
+            chains = 4,
+            seed = 123)
+```
+
+Summary of the posterior distributions for the key parameters:
+```{r}
+print(fit, pars = c("beta", "mu_alpha", "tau", "sigma"), probs = c(0.025, 0.5, 0.975))
+```
+
+**Parameter Estimates:**
+
+-	$\beta$: The fixed effect for the floor variable has a mean of -0.66, with a 95% credible interval from -0.79 to -0.54. This negative value suggests that, all else being equal, measurements taken on an upper floor (assuming floor is coded as 1 for upper floor) are associated with lower log radon levels compared to basement measurements.
+
+-	$\mu_\alpha$: The overall (global) intercept is estimated at 1.49, with a credible interval from 1.39 to 1.60. This represents the average log radon level for the baseline (reference) group.
+
+-	$\tau$: The between-county standard deviation is estimated at 0.32 (credible interval: 0.24 to 0.42), quantifying the variability in county-specific intercepts.
+
+-	$\sigma$: The residual standard deviation (within-county variability) is estimated at 0.73 (credible interval: 0.69 to 0.76).
+
+### Diagnostic Checks
+
+After sampling, it is important to check that the chains have converged and that the posterior exploration is adequate. We use several diagnostic tools available in the bayesplot package.
+
+#### Trace Plots
+
+Trace plots provide to us a visual representation of the sampling paths across chains. We expect that well-mixed chains should appear as overlapping, horizontal “fuzzy caterpillars.”
+
+We convert the fitted model to an array for bayesplot and investigate the traces:
+```{r}
+posterior_samples <- as.array(fit)
+mcmc_trace(posterior_samples, pars = c("beta", "mu_alpha", "tau", "sigma"))
+```
+From these trace plots, we see that all four chains appear to have converged and are mixing well. Each chain fluctuates around a similar central value for each parameter, and we observe no pronounced upward or downward trends. The overlap among chains is substantial, suggesting that we have reached a stable sampling distribution. We also see no abrupt jumps or signs of poor mixing, which reinforces that our NUTS sampler is exploring the posterior efficiently.
+
+#### Pair Plots
+
+Pair plots help us assess potential correlations between parameters and they also provide an overview of the joint posterior distributions.
+```{r}
+mcmc_pairs(posterior_samples, pars = c("beta", "mu_alpha", "tau", "sigma"))
+```
+**Marginal Distributions (Diagonals):**
+
+Each parameter’s histogram is roughly unimodal and does not exhibit strong skew or multiple modes. This suggests that the posterior for each parameter is relatively stable and well-identified.
+
+**Pairwise Relationships (Off-Diagonals):**
+
+The scatter plots show how each parameter’s posterior samples relate to the others. We do not see strong linear or nonlinear patterns, indicating that no pair of parameters is highly correlated. This relative lack of strong correlation is a good sign for efficient sampling and clear parameter interpretation.
+
+**Overall Posterior Behavior:**
+
+The tight, roughly elliptical scatter clouds in the off-diagonal plots, combined with unimodal marginals, suggest that our model converged well and that the parameters are well estimated. There is no visual evidence of pathological behavior such as multi-modality or heavy tail correlations that could impede inference.
+
+### Convergence Statistics
+
+In this subsection, we demonstrate several methods we have learned for assessing convergence of our Markov chains. By confirming that our sampler has stabilized around the same region across chains, exhibits minimal autocorrelation, and has sufficiently large effective sample sizes, we gain confidence that the posterior draws are reliable.
+
+#### Multiple Chains and R-hat
+
+We ran multiple Markov chains in parallel. When each chain converges to the same region of parameter space, it provides evidence that the sampler is exploring the true posterior rather than getting stuck in a local mode. In Stan’s output, the $\hat{R}$ statistic quantifies the potential scale reduction factor. 
+```{r}
+rhat_values <- rhat(fit, pars = c("beta", "mu_alpha", "tau", "sigma"))
+print(rhat_values)
+```
+An $\hat{R}$ value of 1 indicates perfect convergence, meaning that the variability between the chains is nearly identical to the variability within each chain. Typically, values below 1.1 are considered acceptable, so our values confirm that our chains have converged well. This gives us confidence that the posterior estimates are reliable and that our sampler has thoroughly explored the target distribution.
+
+#### Effective Sample Size (ESS)
+
+The effective sample size (ESS) measures how many nearly independent draws we have relative to the total samples. High autocorrelation within a chain reduces the ESS. Stan reports both an absolute ESS and an ESS ratio. A higher ESS indicates more information for reliable posterior estimation.
+```{r}
+ess_values <- neff_ratio(fit, pars = c("beta", "mu_alpha", "tau", "sigma"))
+print(ess_values)
+```
+The ESS ratio for $\beta$ (2.05) and $\sigma$ (1.75) indicate that these parameters are sampled with high efficiency — i.e., the chains for these parameters have relatively low autocorrelation. On the other hand, $\mu_\alpha$ (0.63) and $\tau$ (0.40) have lower ESS ratios, suggesting that their chains exhibit higher autocorrelation and thus provide fewer independent draws. Although these lower ratios might still be acceptable, they indicate that further tuning or additional iterations could be beneficial to improve the precision of our estimates for these parameters.
+
+#### Autocorrelation
+
+Even if the chains converge, strong autocorrelation in the draws can reduce the effective sample size. We can visualize the autocorrelation function (ACF) for each parameter using bayesplot.
+```{r}
+posterior_samples <- as.array(fit)
+mcmc_acf_bar(posterior_samples, pars = c("beta", "mu_alpha", "tau", "sigma"))
+```
+We see that $\beta$ and $\sigma$ exhibit a rapid decay toward zero, indicating that successive draws for these parameters are relatively uncorrelated. On the other hand, $\mu_\alpha$ and $\tau$ show a slower decay, suggesting higher autocorrelation. This finding aligns with the lower ESS ratios observed for these parameters. While the chains do converge overall, the slower decay in autocorrelation for $\mu_\alpha$ and $\tau$ implies that we might **need additional iterations** — or a **different parameterization** — to achieve a higher number of effectively independent draws for those parameters.
+
+### Density Plots
+
+Density plots help visualize the marginal posterior distributions of each parameter. By overlaying densities from each chain, we can quickly assess whether the chains have converged to the same distribution and identify any irregularities such as multimodality or heavy tails.
+```{r}
+posterior_samples <- as.array(fit)
+mcmc_dens_overlay(posterior_samples, pars = c("beta", "mu_alpha", "tau", "sigma"))
+```
+These overlaid density plots show that all four chains produce nearly identical posterior distributions for each parameter, indicating strong convergence and no evidence of multi-modality. Each parameter’s distribution appears unimodal, and the curves from different chains overlap closely. This alignment suggests that the sampler has converged to a stable region of parameter space and that our posterior estimates for $\beta$, $\mu_\alpha$, $\tau$, and $\sigma$ are both consistent and reliable.
+
+# 5. Algorithm Enhancement
+
+[]: # Please read what I did above before continuing, I already presented some potenital improvements!
+
+
+
+
+# 6. Discussion 
+
+
+
+
+
+# 7. Conclusion
+
+
+
+
+# References
+
+Gelman, A., & Hill, J. (2007). *Data Analysis Using Regression and Multilevel/Hierarchical Models.* Cambridge University Press.
+
+Papaspiliopoulos, O., Roberts, G. O., & Sköld, M. (2003). *Non-centered parameterizations for hierarchical models and data augmentation.* Bayesian Statistics, 7, 307–326.
+
+
+
+
+
 
