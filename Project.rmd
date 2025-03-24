@@ -58,9 +58,10 @@ In this section, we explore the radon dataset to understand its structure and ke
 
 ### Importing and Inspecting the Data
 
-First, we load the radon dataset:
+First, we load the radon dataset. We can do this by using the *load* method as the dataset is included in the rstan package. Alternatively, we added the file as a CVS in the Project.zip:
 ```{r}
-data("radon")
+data("radon") 
+#radon<-read.csv("radon_exported.csv") if the above gives errors due to package incompatibility. 
 ```
 
 Let’s inspect the first few rows:
@@ -157,7 +158,7 @@ The table shows that each of the 85 counties has a different number of observati
 
 # 3. Model Specifications
 
-### Hierarchical Model Formulation
+## Baseline Model: Hierarchical Model Formulation
 
 We aim to model the log-transformed radon level $y_{ij}$ for house $i$ in county $j$. We include a fixed effect for whether the measurement was taken in the basement (0) or on an upper floor (1). In addition, each county has its own intercept, reflecting the idea that some counties may have generally higher or lower radon levels. Note that this model is inspired by the hierarchical models presented by Gelman and Hill (2007). We can write this as:
 
@@ -183,9 +184,23 @@ where:
 
 -	$\tau$ captures the between-county variability.
 
-According to Papaspiliopoulos, Roberts, and Sköld (2003), non-centered parameterization can improve sampling efficiency in hierarchical models. Instead of sampling $\alpha_j$ directly, we introduce a latent variable $\alpha_{\text{raw}, j}$ that follows a standard normal, and then transform it:
 
-$$\alpha_j = \mu_\alpha + \alpha_{\text{raw}, j} \cdot \tau.$$
+To specify our model, we used the following distributions:
+
+$$
+\begin{aligned}
+y_{ij} &\sim \mathcal{N}(\alpha_j + \beta \, x_{ij}, \sigma^2), \\[6pt]
+\alpha_j &\sim \mathcal{N}(\mu_\alpha, \tau^2), \\[6pt]
+\mu_\alpha &\sim \mathcal{N}(0, 10^2), \quad
+\tau &\sim \text{Cauchy}^+(0, 2.5), \\[6pt]
+\beta &\sim \mathcal{N}(0, 10^2), \quad
+\sigma \sim \text{Cauchy}^+(0, 2.5).
+\end{aligned}
+$$
+
+
+We shall denote this model our baseline model. The corresponding plate diagram can be seen in the file *baseline_model.jpeg*. 
+
 
 ### Goal of Bayesian Inference
 
@@ -203,11 +218,8 @@ The goal of this Bayesian hierarchical model is to estimate the posterior distri
 
 By estimating these posterior distributions, we can quantify both the uncertainty at the county level (how counties differ from one another) and the uncertainty at the house level (residual variability around each county’s intercept).
 
-*Note:* We implemented the above described hierarchical model using non-centered parameterization in the file *radon_model.stan*.
-
-# 4. Sampling and Diagnostics
-
-In this section, we load our Stan model (saved as radon_model.stan), prepare the data for modeling, run the posterior sampler using Hamiltonian Monte Carlo (HMC) via the No-U-Turn Sampler (NUTS), and perform several diagnostic checks. NUTS is particularly effective for hierarchical models, as it uses gradient information to efficiently explore high-dimensional posterior distributions.
+We will implement our baseline model in the chapter/code below. the corresponding model can be found in the file *radon_model_centered.stan*
+We load our Stan model (saved as radon_model_centered.stan), prepare the data for modeling, run the posterior sampler using Hamiltonian Monte Carlo (HMC) via the No-U-Turn Sampler (NUTS), and perform several diagnostic checks. NUTS is particularly effective for hierarchical models, as it uses gradient information to efficiently explore high-dimensional posterior distributions.
 
 ### Data Preparation for Stan
 
@@ -229,7 +241,166 @@ We run our model using the No-U-Turn Sampler (NUTS), an advanced variant of Hami
 
 We now run our Stan model using 4 chains with 2000 iterations each (1000 warmup iterations and 1000 sampling iterations):
 ```{r}
-fit <- stan(file = "radon_model.stan",
+fit <- stan(file = "radon_model_centered.stan",
+            data = radon_data,
+            iter = 2000,
+            warmup = 1000,
+            chains = 4,
+            seed = 123)
+```
+
+Summary of the posterior distributions for the key parameters:
+```{r}
+print(fit, pars = c("beta", "mu_alpha", "tau", "sigma"), probs = c(0.025, 0.5, 0.975))
+```
+
+**Parameter Estimates:**
+
+-	$\beta$: The fixed effect for the floor variable has a mean of -0.66, with a 95% credible interval from -0.79 to -0.66. This negative value suggests that, all else being equal, measurements taken on an upper floor (assuming floor is coded as 1 for upper floor) are associated with lower log radon levels compared to basement measurements.
+
+-	$\mu_\alpha$: The overall (global) intercept is estimated at 1.49, with a credible interval from 1.39 to 1.60. This represents the average log radon level for the baseline (reference) group.
+
+-	$\tau$: The between-county standard deviation is estimated at 0.32 (credible interval: 0.24 to 0.42), quantifying the variability in county-specific intercepts.
+
+-	$\sigma$: The residual standard deviation (within-county variability) is estimated at 0.73 (credible interval: 0.69 to 0.76).
+
+### Diagnostic Checks
+
+After sampling, it is important to check that the chains have converged and that the posterior exploration is adequate. We use several diagnostic tools available in the bayesplot package.
+
+#### Trace Plots
+
+Trace plots provide to us a visual representation of the sampling paths across chains. We expect that well-mixed chains should appear as overlapping, horizontal “fuzzy caterpillars.”
+
+We convert the fitted model to an array for bayesplot and investigate the traces:
+```{r}
+posterior_samples <- as.array(fit)
+mcmc_trace(posterior_samples, pars = c("beta", "mu_alpha", "tau", "sigma"))
+```
+From these trace plots, we see that all four chains appear to have converged and are mixing well. Each chain fluctuates around a similar central value for each parameter, and we observe no pronounced upward or downward trends. The overlap among chains is substantial, suggesting that we have reached a stable sampling distribution. We also see no abrupt jumps or signs of poor mixing, which reinforces that our NUTS sampler is exploring the posterior efficiently.
+
+#### Pair Plots
+
+Pair plots help us assess potential correlations between parameters and they also provide an overview of the joint posterior distributions.
+```{r}
+mcmc_pairs(posterior_samples, pars = c("beta", "mu_alpha", "tau", "sigma"))
+```
+**Marginal Distributions (Diagonals):**
+
+Each parameter’s histogram is roughly unimodal and does not exhibit strong skew or multiple modes. This suggests that the posterior for each parameter is relatively stable and well-identified.
+
+**Pairwise Relationships (Off-Diagonals):**
+
+The scatter plots show how each parameter’s posterior samples relate to the others. We do not see strong linear or nonlinear patterns, indicating that no pair of parameters is highly correlated. This relative lack of strong correlation is a good sign for efficient sampling and clear parameter interpretation.
+
+**Overall Posterior Behavior:**
+
+The tight, roughly elliptical scatter clouds in the off-diagonal plots, combined with unimodal marginals, suggest that our model converged well and that the parameters are well estimated. There is no visual evidence of pathological behavior such as multi-modality or heavy tail correlations that could impede inference.
+
+### Convergence Statistics
+
+In this subsection, we demonstrate several methods we have learned for assessing convergence of our Markov chains. By confirming that our sampler has stabilized around the same region across chains, exhibits minimal autocorrelation, and has sufficiently large effective sample sizes, we gain confidence that the posterior draws are reliable.
+
+#### Multiple Chains and R-hat
+
+We ran multiple Markov chains in parallel. When each chain converges to the same region of parameter space, it provides evidence that the sampler is exploring the true posterior rather than getting stuck in a local mode. In Stan’s output, the $\hat{R}$ statistic quantifies the potential scale reduction factor. 
+```{r}
+rhat_values <- rhat(fit, pars = c("beta", "mu_alpha", "tau", "sigma"))
+print(rhat_values)
+```
+An $\hat{R}$ value of 1 indicates perfect convergence, meaning that the variability between the chains is nearly identical to the variability within each chain. Typically, values below 1.1 are considered acceptable, so our values confirm that our chains have converged well. This gives us confidence that the posterior estimates are reliable and that our sampler has thoroughly explored the target distribution.
+
+#### Effective Sample Size (ESS)
+
+The effective sample size (ESS) measures how many nearly independent draws we have relative to the total samples. High autocorrelation within a chain reduces the ESS. Stan reports both an absolute ESS and an ESS ratio. A higher ESS indicates more information for reliable posterior estimation.
+```{r}
+ess_values <- neff_ratio(fit, pars = c("beta", "mu_alpha", "tau", "sigma"))
+print(ess_values)
+```
+The ESS ratio for $\beta$ (2.05) and $\sigma$ (1.75) indicate that these parameters are sampled with high efficiency — i.e., the chains for these parameters have relatively low autocorrelation. On the other hand, $\mu_\alpha$ (0.63) and $\tau$ (0.40) have lower ESS ratios, suggesting that their chains exhibit higher autocorrelation and thus provide fewer independent draws. Although these lower ratios might still be acceptable, they indicate that further tuning or additional iterations could be beneficial to improve the precision of our estimates for these parameters.
+
+#### Autocorrelation
+
+Even if the chains converge, strong autocorrelation in the draws can reduce the effective sample size. We can visualize the autocorrelation function (ACF) for each parameter using bayesplot.
+```{r}
+posterior_samples <- as.array(fit)
+mcmc_acf_bar(posterior_samples, pars = c("beta", "mu_alpha", "tau", "sigma"))
+```
+We see that $\beta$ and $\sigma$ exhibit a rapid decay toward zero, indicating that successive draws for these parameters are relatively uncorrelated. On the other hand, $\mu_\alpha$ and $\tau$ show a slower decay, suggesting higher autocorrelation. This finding aligns with the lower ESS ratios observed for these parameters. While the chains do converge overall, the slower decay in autocorrelation for $\mu_\alpha$ and $\tau$ implies that we might **need additional iterations** — or a **different parameterization** — to achieve a higher number of effectively independent draws for those parameters.
+
+### Density Plots
+
+Density plots help visualize the marginal posterior distributions of each parameter. By overlaying densities from each chain, we can quickly assess whether the chains have converged to the same distribution and identify any irregularities such as multimodality or heavy tails.
+```{r}
+posterior_samples <- as.array(fit)
+mcmc_dens_overlay(posterior_samples, pars = c("beta", "mu_alpha", "tau", "sigma"))
+```
+These overlaid density plots show that all four chains produce nearly identical posterior distributions for each parameter, indicating strong convergence and no evidence of multi-modality. Each parameter’s distribution appears unimodal, and the curves from different chains overlap closely. This alignment suggests that the sampler has converged to a stable region of parameter space and that our posterior estimates for $\beta$, $\mu_\alpha$, $\tau$, and $\sigma$ are both consistent and reliable.
+
+
+
+
+
+
+# 5. Algorithm Enhancement
+
+[]: # Please read what I did above before continuing, I already presented some potenital improvements!
+
+
+## 5.1 Non-Centered and Centered Parametrization
+
+Our first improvement of this model is based on Papaspiliopoulos, Roberts, and Sköld (2003).
+According to Papaspiliopoulos, Roberts, and Sköld (2003), non-centered parameterization can improve sampling efficiency in hierarchical models. Instead of sampling $\alpha_j$ directly, we introduce a latent variable $\alpha_{\text{raw}, j}$ that follows a standard normal, and then transform it:
+
+$$\alpha_j = \mu_\alpha + \alpha_{\text{raw}, j} \cdot \tau.$$
+
+
+To recap, In the centered parameterization on the other hand, we model the county-level intercepts $\alpha_j$ directly as being drawn from a common distribution with parameters $\mu_\alpha$ and $\tau$.
+
+This model assumes that each county-specific intercept $\alpha_j$ is drawn from a population distribution centered at $\mu_\alpha$ with standard deviation $\tau$, allowing for **partial pooling** of information across counties. The slope $\beta$ represents the effect of floor level, and $\sigma$ is the residual variability within counties.
+
+We call this the *centered parameterization* because we sample $\alpha_j$ directly from its normal distribution:
+
+$$
+\alpha_j \sim \mathcal{N}(\mu_\alpha, \tau^2),
+$$
+
+as opposed to defining a standard normal variable and transforming it (as in the non-centered case).
+
+In the **non-centered** parameterization, we instead define:
+
+$$
+\alpha_j = \mu_\alpha + \tau \cdot \alpha_{\text{raw},j}, \quad \text{with } \alpha_{\text{raw},j} \sim \mathcal{N}(0, 1),
+$$
+
+Theoretically, this reparameterization can improve convergence and sampling efficiency, especially when the data are weakly informative about group-level variation (e.g., sparse counties or small $\tau$). In contrast, the **centered parameterization** tends to work better when group-level effects are well-identified from the data (e.g., larger sample size per group, stronger signals).
+
+In this section, we implement and compare the enhanced, non-centered version to examine differences in posterior estimates, sampling efficiency, and diagnostics.
+
+# 5.2 Fitting the non-centered
+
+
+As done before, we load our Stan model (saved as radon_model_non-centered.stan), prepare the data for modeling, run the posterior sampler using Hamiltonian Monte Carlo (HMC) via the No-U-Turn Sampler (NUTS), and perform several diagnostic checks. NUTS is particularly effective for hierarchical models, as it uses gradient information to efficiently explore high-dimensional posterior distributions.
+
+### Data Preparation for Stan
+
+We first prepare the data in a list that matches the format expected by the Stan model. Note that we convert the county variable to an integer to serve as an index for the hierarchical structure.
+```{r}
+radon_data <- list(
+  N = nrow(radon),
+  J = length(unique(radon$county)),
+  county = as.integer(radon$county),
+  y = radon$log_radon,
+  x = radon$floor
+)
+print(radon_data)
+```
+
+### Running the Stan Sampler
+
+We now run our Stan model using 4 chains with 2000 iterations each (1000 warmup iterations and 1000 sampling iterations):
+```{r}
+fit <- stan(file = "radon_model_non-centered.stan",
             data = radon_data,
             iter = 2000,
             warmup = 1000,
@@ -325,12 +496,11 @@ mcmc_dens_overlay(posterior_samples, pars = c("beta", "mu_alpha", "tau", "sigma"
 ```
 These overlaid density plots show that all four chains produce nearly identical posterior distributions for each parameter, indicating strong convergence and no evidence of multi-modality. Each parameter’s distribution appears unimodal, and the curves from different chains overlap closely. This alignment suggests that the sampler has converged to a stable region of parameter space and that our posterior estimates for $\beta$, $\mu_\alpha$, $\tau$, and $\sigma$ are both consistent and reliable.
 
-# 5. Algorithm Enhancement
+# 5.3 Enhancment by changing Priors
 
-[]: # Please read what I did above before continuing, I already presented some potenital improvements!
+Changing prios and so on.
 
-
-
+Continue here by changing the model/enhancing it in a different way.
 
 # 6. Discussion 
 
