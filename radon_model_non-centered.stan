@@ -1,10 +1,9 @@
-
 //
 // Project: Hierarchical Bayesian Analysis of Radon Data: An Enhanced Hamiltonian Monte Carlo Approach
 // Group: Oliver Tausendschön, Marvin Ernst, Victor Sobottka
 // Class: Probabilistic Inference in Machine Learning
 // 
-// HIERARCHICAL MODEL
+// HIERARCHICAL MODEL - ADVANCED: NON-CENTERED PARAMETRIZATION
 //
 
 data {
@@ -31,14 +30,23 @@ transformed parameters {
 }
 
 model {
-  beta ~ normal(0, 5);
-  mu_alpha ~ normal(0, 5);
-  tau ~ cauchy(0, 5);
-  sigma ~ cauchy(0, 5);
+  beta ~ normal(0, 10);
+  mu_alpha ~ normal(0, 10);
+  tau ~ cauchy(0, 2.5);
+  sigma ~ cauchy(0, 2.5);
   alpha_raw ~ normal(0, 1); 
 
   for (n in 1:N) {
     y[n] ~ normal(alpha[county[n]] + beta * x[n], sigma);
   }
 }
+
+generated quantities {
+  vector[N] log_lik;
+  for (n in 1:N)
+    log_lik[n] = normal_lpdf(y[n] | alpha[county[n]] + beta * x[n], sigma);
+}
+
+
+
 
