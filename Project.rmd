@@ -958,7 +958,8 @@ combined_hybrid_diag <- bind_rows(dense_diag, hybrid_diag)
 print(combined_hybrid_diag)
 ```
 
-From this final dataframe, we can argue that the **hybrid model is the best performing model overall**. It shows a modest but consistent improvement in predictive performance (LOO-ELPD = −1034.4 vs −1037.3) but at the same time maintains excellent convergence diagnostics. However, it is slightly less efficient in terms of sampling (lower ESS) we shall not prioritize sampling efficiency over predictive power when it comes to our model performance here. Furthermore, it offers a richer model structure by including discrete latent variables, potentially capturing residual variation that the baseline dense model does not account for.
+From this final dataframe, we can argue that the **hybrid model is the best performing model overall**. It shows a modest but consistent improvement in predictive performance (LOO-ELPD = −1034.4 vs −1037.3) but at the same time maintains excellent convergence diagnostics. However, it is slightly less efficient in terms of sampling (lower ESS) we shall not prioritize sampling efficiency over predictive power when it comes to our model performance here. Furthermore, it offers a richer model structure by including discrete latent variables, potentially capturing residual variation that the baseline dense model does not account for. We shall explore the difference in the final *Discussion* section.
+
 
 
 
@@ -967,20 +968,51 @@ From this final dataframe, we can argue that the **hybrid model is the best perf
 
 # 6. Discussion 
 
+To illustrate the difference in the two final models, we will most importantly plot the posterior of the corresponding parameters. The summary of the point estimates can also be seen below.
 
-We have to check which one the best overall is and then do the inference based on this 
-
-
-Final Predictions with the best model!?
-
-Summary of the posterior distributions for the key parameters for the best model.... 
 ```{r}
-#print(fit_XYZ, pars = c("beta", "mu_alpha", "tau", "sigma"), probs = c(0.025, 0.5, 0.975))
+draws_dense <- as_draws_df(fit_dense)
+draws_hybrid <- as_draws_df(final_fit)  # final_fit = last Stan fit from hybrid sampler
+
+# Labels:
+draws_dense$model <- "Dense"
+draws_hybrid$model <- "Hybrid"
+
+draws_combined <- rbind(
+  draws_dense[, c("mu_alpha", "beta", "sigma", "tau", "model")],
+  draws_hybrid[, c("mu_alpha", "beta", "sigma", "tau", "model")]
+)
+
+draws_long <- pivot_longer(draws_combined, cols = -model, names_to = "parameter", values_to = "value")
+
+ggplot(draws_long, aes(x = value, fill = model)) +
+  geom_density(alpha = 0.5) +
+  facet_wrap(~ parameter, scales = "free", ncol = 2) +
+  labs(title = "Posterior Distributions: Hybrid vs Dense Model",
+       x = "Parameter Value", y = "Density") +
+  theme_minimal()
+
 ```
 
-.....
 
-Some discussion about everything we have done.
+-	$\beta$: The two posteriors are almost identical. The models both state that the floor level as a strong negative effect on radon.
+
+-	$\sigma$: Again, very similar results but maybe slightly higher precision for the Hybrid one. 
+
+-	$\mu_\alpha$: Interestingly, this is the only parameter where we see a definite difference. The hybrid model yields a lower estimate than the dense model. The latent variable $z$ appears to be shifting the intercept downords. 
+
+-	$\tau$ Very similiar again.
+
+```{r}
+#Point estimates:
+print(final_fit, pars = c("mu_alpha", "beta", "tau", "sigma"), probs = c(0.025, 0.5, 0.975))
+
+```
+
+Based on the final hybrid model, we estimate that the average log-radon level (intercept) across counties is approximately 1.30. The negative coefficient on floor suggests that radon levels tend to be significantly lower on upper floors than in basements. The between-county variability (tau) and within-county residual variability (sigma) are are also positive, indicating that counties truly differ from each other and a´houses within a county also vary. This highlights the need for a hierarchical model as ours.
+
+To wrap this up, we can say that we sucessfully improved the model even though it is not by a lot. To deepen this, further research could explore dynamic hierarchical models where the latent structure evolves over time, or incorporate spatial dependencies between counties to better capture geographical patterns in radon exposure.
+
 
 
 # 7. Conclusion
