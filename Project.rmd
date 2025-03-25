@@ -18,10 +18,9 @@ opts_chunk$set(fig.align="center",
 Supervisor: Prof. Lorenzo Cappello, PhD
 
 []: # *Importing the relevant libraries:*
-```{r, echo=FALSE}
+```{r, echo=FALSE, results='hide'}
 library(gridExtra)
 library(tidyr)
-
 library(rstanarm)
 library(arm)
 library(ggplot2)
@@ -32,14 +31,14 @@ library(bayesplot)
 ```
 
 []: # We set options for rstan to use multiple cores for faster computation:
-```{r, echo=FALSE}
+```{r, echo=FALSE, results='hide'}
 rstan_options(auto_write = TRUE)
 options(mc.cores = parallel::detectCores())
 ```
 
 
 []: # Clear the environment:
-```{r, echo=FALSE}
+```{r, echo=FALSE, results='hide'}
 rm(list=ls())
 ```
 
@@ -83,11 +82,11 @@ In this section, we explore the radon dataset to understand its structure and ke
 First, we load the radon dataset. We can do this by using the *load* method as the dataset is included in the rstan package. Alternatively, we added the file as a CVS in the Project.zip:
 ```{r}
 data("radon") 
-#radon<-read.csv("radon_exported.csv") if the above gives errors due to package incompatibility. 
+#radon<-read.csv("radon_exported.csv") # if the above gives errors due to package incompatibility. 
 ```
 
 Let’s inspect the first few rows:
-```{r}
+```{r, echo=FALSE}
 head(radon)
 ```
 The dataset contains the following variables: 
@@ -101,7 +100,7 @@ The dataset contains the following variables:
 - $log_uranium$: The natural logarithm of the uranium measurement. Uranium concentration in the soil is considered a potential predictor of radon levels, as radon is a decay product of uranium.
 
 We also check the dimensions of the dataset:
-```{r}
+```{r, echo=FALSE}
 dim(radon)
 ```
 This dataset consists of 919 observations.
@@ -109,7 +108,7 @@ This dataset consists of 919 observations.
 ### Distribution of Radon Levels
 
 To understand the distribution of radon levels, we visualize the histogram of the log-transformed radon measurements:
-```{r}
+```{r, echo=FALSE}
 ggplot(radon, aes(x = log_radon)) + 
   geom_histogram(bins = 30, fill = "skyblue", color = "black") +
   labs(title = "Distribution of Log Radon Levels", x = "Log Radon", y = "Frequency")
@@ -119,7 +118,7 @@ The distribution of log-transformed radon levels is roughly unimodal, centered a
 ### County-Level Differences
 
 Next, we explore how radon levels vary by county. A boxplot of log_radon across counties provides a clear visualization of the differences:
-```{r}
+```{r, echo=FALSE}
 ggplot(radon, aes(x = factor(county), y = log_radon)) + 
   geom_boxplot(fill = "lightgreen", color = "black") +
   labs(title = "Radon Levels by County", x = "County", y = "Log Radon") +
@@ -128,7 +127,7 @@ ggplot(radon, aes(x = factor(county), y = log_radon)) +
 There is clear variation in log radon levels across counties, with some counties showing higher or lower median values than others. Within each county, there is also notable spread in the data. This suggests both between-county and within-county variability and reinforces the need for a hierarchical modeling approach that can capture these different levels of variation.
 
 Additionally, we also compute and plot the mean log radon level for each county:
-```{r}
+```{r, echo=FALSE}
 county_summary <- radon %>%
   group_by(county) %>%
   summarise(mean_log_radon = mean(log_radon, na.rm = TRUE),
@@ -168,7 +167,7 @@ The radon data are naturally grouped by county, meaning that multiple observatio
 -	**Between-County Variability:** Variation in the average radon level from one county to another.
 
 To further illustrate this structure, we summarize key statistics by county:
-```{r}
+```{r, echo=FALSE}
 county_stats <- radon %>%
   group_by(county) %>%
   summarise(n = n(), 
@@ -273,7 +272,7 @@ fit <- stan(file = "radon_model_centered.stan",
 ```
 
 Summary of the posterior distributions for the key parameters:
-```{r}
+```{r, echo=FALSE}
 print(fit, pars = c("beta", "mu_alpha", "tau", "sigma"), probs = c(0.025, 0.5, 0.975))
 ```
 
@@ -297,7 +296,7 @@ In this subsection, we assess the convergence of our Markov chains using a suite
 Trace plots provide to us a visual representation of the sampling paths across chains. We expect that well-mixed chains should appear as overlapping, horizontal “fuzzy caterpillars.”
 
 We convert the fitted model to an array for bayesplot and investigate the traces:
-```{r}
+```{r, echo=FALSE}
 posterior_samples <- as.array(fit)
 mcmc_trace(posterior_samples, pars = c("beta", "mu_alpha", "tau", "sigma"))
 ```
@@ -305,8 +304,8 @@ From these trace plots, we see that all four chains appear to have converged and
 
 #### Pair Plots
 
-Pair plots help us assess potential correlations between parameters and they also provide an overview of the joint posterior distributions.
-```{r}
+Pair plots can help us assess potential correlations between parameters and they also provide an overview of the joint posterior distributions.
+```{r, echo=FALSE}
 mcmc_pairs(posterior_samples, pars = c("beta", "mu_alpha", "tau", "sigma"))
 ```
 **Marginal Distributions (Diagonals):**
@@ -324,7 +323,7 @@ The tight, roughly elliptical scatter clouds in the off-diagonal plots, combined
 #### R-hat
 
 We ran multiple Markov chains in parallel. When each chain converges to the same region of parameter space, it provides evidence that the sampler is exploring the true posterior rather than getting stuck in a local mode. In Stan’s output, the $\hat{R}$ statistic quantifies the potential scale reduction factor. 
-```{r}
+```{r, echo=FALSE}
 rhat_values <- rhat(fit, pars = c("beta", "mu_alpha", "tau", "sigma"))
 print(rhat_values)
 ```
@@ -333,7 +332,7 @@ An $\hat{R}$ value of about 1 indicates perfect convergence, meaning that the va
 #### Effective Sample Size (ESS)
 
 The effective sample size (ESS) measures how many nearly independent draws we have relative to the total samples. High autocorrelation within a chain reduces the ESS. Stan reports both an absolute ESS and an ESS ratio. A higher ESS ratio indicates more efficient sampling.
-```{r}
+```{r, echo=FALSE}
 ess_values <- neff_ratio(fit, pars = c("beta", "mu_alpha", "tau", "sigma"))
 print(ess_values)
 ```
@@ -342,7 +341,7 @@ The ESS ratios for $\beta$ (1.34) and $\sigma$ (1.79) are greater than 1, which 
 #### Autocorrelation
 
 Even if the chains converge, strong autocorrelation in the draws can reduce the effective sample size. We can visualize the autocorrelation function (ACF) for each parameter using bayesplot.
-```{r}
+```{r, echo=FALSE}
 posterior_samples <- as.array(fit)
 mcmc_acf_bar(posterior_samples, pars = c("beta", "mu_alpha", "tau", "sigma"))
 ```
@@ -351,7 +350,7 @@ From the ACF plots, we see that $\beta$, $\mu_\alpha$, and $\sigma$ exhibit a re
 #### Density Plots
 
 Density plots help visualize the marginal posterior distributions of each parameter. By overlaying densities from each chain, we can quickly assess whether the chains have converged to the same distribution and identify any irregularities such as multimodality or heavy tails.
-```{r}
+```{r, echo=FALSE}
 posterior_samples <- as.array(fit)
 mcmc_dens_overlay(posterior_samples, pars = c("beta", "mu_alpha", "tau", "sigma"))
 ```
@@ -438,7 +437,7 @@ fit_dense <- stan(file = "radon_model_centered.stan",
 #### Convergence Checks
 
 Running diagnostics on the fitted model:
-```{r}
+```{r, echo=FALSE}
 dense_diag <- run_diagnostics(fit_dense, model_name = "dense_mass_matrix")
 ```
 The plots appear very similar to those of the baseline model.
@@ -452,7 +451,7 @@ The plots appear very similar to those of the baseline model.
 #### Model Comparison
 
 Next we compare the model to the baseline Model.
-```{r}
+```{r, echo=FALSE}
 combined_diagnostics <- bind_rows(baseline_diag, dense_diag)
 print(combined_diagnostics)
 ```
@@ -493,15 +492,15 @@ fit_nc <- stan(file = "radon_model_non-centered.stan",
 #### Convergence Checks
 
 Running diagnostics on the fitted model:
-```{r}
-nc_diag <- run_diagnostics(fit_nc, model_name = "non_centered_pararmeterization")
+```{r, echo=FALSE}
+nc_diag <- run_diagnostics(fit_nc, model_name = "non_cent_par")
 ```
 From these plots, we can see that the **chains mix well** and there are **no signs of non-convergence**. The trace plots show stable, overlapping “fuzzy caterpillars,” indicating that the sampler is exploring a consistent region of the parameter space for each parameter. The autocorrelation plots reveal a relatively **fast decay**, suggesting an efficient sampling process with low correlation between successive draws. Finally, the density overlays for each chain align closely, reinforcing that the chains converge to the same posterior distribution. The only difference we can notice compared to the *baseline model* is that the $\mu_\alpha$ shows a slower decay in this model.
 
 #### Model Comparison
 
 Next we compare the model to the baseline model.
-```{r}
+```{r, echo=FALSE}
 combined_diagnostics <- bind_rows(baseline_diag, nc_diag)
 print(combined_diagnostics)
 ```
@@ -542,11 +541,11 @@ choose_best_model <- function(diag_baseline, diag_noncentered) {
 ```
 
 After running the diagnostic checks, we can automatically decide the best model:
-```{r}
+```{r, echo=FALSE}
 best_model <- choose_best_model(baseline_diag, nc_diag)
 cat("The automatically selected best model is:", best_model, "\n")
 ```
-For further optimizations, we will run both models (centered and non-centered) and let the routine decide which performs better based on these diagnostics, and then compare the selected model against the baseline. 
+For further optimization, we will run both models (centered and non-centered) and let the routine decide which performs better based on these diagnostics, and then compare the selected model against the baseline. 
 
 ##### Checking Dense vs. Default Mass Matrix for Non-Centered Parameterization
 
@@ -563,8 +562,8 @@ fit_nc_dense <- stan(file = "radon_model_non-centered.stan",
                      control = list(metric = "dense_e", adapt_engaged = TRUE))
 ```
 
-Run diagnostics for the dense non-centered model:
-```{r}
+We run diagnostics for the dense non-centered model:
+```{r, echo=FALSE}
 nc_dense_diag <- run_diagnostics(fit_nc_dense, model_name = "non_centered_dense", print_plots = FALSE)
 ```
 As before, we observe successful convergence. (Plots are almost identical, that is why we do not present them here in this report, however, they are stored in the *'plots'* folder.)
@@ -602,16 +601,16 @@ model_centered <- stan_model(file = "radon_model_centered.stan")
 ```
 
 Then, we run variational inference to obtain initial estimates:
-```{r}
+```{r, results='hide'}
 fit_vb <- vb(model_centered, data = radon_data, seed = 123)
 ```
 When running it as above, we observed issues such as high Pareto k values indicating unstable importance sampling. While the preliminary variational inference results provide an acceptable approximation for our initial analysis, our focus on algorithm optimization motivates us to fine-tune the variational parameters. In particular, we plan to decrease the tolerance ($tol_rel_obj = 0.001$) to improve convergence and reliability. This adjustment will force the algorithm to converge more precisely, albeit potentially at the cost of increased runtime.
-```{r}
+```{r, results='hide'}
 fit_vb_finetuned <- vb(model_centered, data = radon_data, seed = 123,
                        tol_rel_obj = 0.001) 
 ```
 This initial fine-tuning was not completely sufficient, so we decided to both increase the number of posterior draws and further reduce the tolerance ($tol_rel_obj$). We iterated on these settings several times until we found a sweet spot—balancing computational efficiency with the quality of the variational approximation.
-```{r}
+```{r, results='hide'}
 fit_vb_more_tuned <-vb(model_centered, data = radon_data,  seed = 123,
                        tol_rel_obj = 0.0001,
                        output_samples = 20000) 
@@ -634,7 +633,7 @@ init_fun <- function() {
   )
 }
 ```
-(Note: This initialization strategy is based on our model specifics and may be refined further if necessary.)
+(Note: This initialization strategy is based on our model specifics and may be refined further in the future.)
 
 Now, we run Stan using NUTS with these warm-start initial values:
 ```{r}
@@ -653,7 +652,7 @@ fit_warm <- stan(file = "radon_model_centered.stan",
 We expect the convergence plots to be very similar, however, we still present them since the goal of this enhancement was faster convergence. 
 
 Running diagnostics on the fitted model:
-```{r}
+```{r, echo=FALSE}
 wu_diag <- run_diagnostics(fit_warm, model_name = "centered_dense_warm")
 ```
 From these plots, we see that the chains for all parameters (beta, mu_alpha, tau, and sigma) remain well-mixed, with no clear trends or drifts, indicating good convergence. The autocorrelation decays quickly across all parameters, suggesting that the sampler efficiently produces near-independent draws. The density overlays from each chain align closely, reinforcing that all chains have converged to the same posterior distribution. Overall, these diagnostics look nearly identical to the earlier runs—consistent with our expectation that the main benefit here is faster convergence, not a change in the final posterior estimates.
@@ -661,7 +660,7 @@ From these plots, we see that the chains for all parameters (beta, mu_alpha, tau
 #### Model Comparison
 
 Next, we compare the model with a warm-start to the baseline dense model that was run without a warm-start.
-```{r}
+```{r, echo=FALSE}
 combined_diagnostics <- bind_rows(dense_diag, wu_diag)
 print(combined_diagnostics)
 ```
@@ -704,7 +703,7 @@ fit_partial_nc <- stan(file = "radon_model_partial_non_centered.stan",
 #### Convergence Checks
 
 Running diagnostics on the fitted model:
-```{r}
+```{r, echo=FALSE}
 partial_nc_diag <- run_diagnostics(fit_partial_nc, model_name = "partial_non_centered")
 ```
 The partial non-centered model appears to have converged successfully: the chains are well-mixed, the R-hat values are near 1, and the autocorrelation for most parameters decays quickly. However, $\tau$ exhibits a slower autocorrelation decay than in previous models. This is a common challenge for group-level scale parameters, and we may explore additional strategies to improve sampling efficiency for $\tau$ in future work (though, for this project this is just a side node since it still decays relatively fast).
@@ -712,7 +711,7 @@ The partial non-centered model appears to have converged successfully: the chain
 #### Model Comparison 
 
 We compare this model to the baseline dense model:
-```{r}
+```{r, echo=FALSE}
 combined_diagnostics <- bind_rows(dense_diag, partial_nc_diag)
 print(combined_diagnostics)
 ```
@@ -737,7 +736,7 @@ fit_log_scale <- stan(file = "radon_model_log_scale.stan",
 #### Convergence Checks
 
 Running diagnostics on the fitted model:
-```{r}
+```{r, echo=FALSE}
 log_scale_diag <- run_diagnostics(fit_log_scale, model_name = "log_scale")
 ```
 The diagnostic plots show well-mixed chains with Rhat values near 1 and a rapid decay in autocorrelation for most parameters (again $\tau$ a little slower decay).
@@ -745,7 +744,7 @@ The diagnostic plots show well-mixed chains with Rhat values near 1 and a rapid 
 #### Model Comparison
 
 We then compare the log-scale reparameterized model to the baseline dense model:
-```{r}
+```{r, echo=FALSE}
 combined_diag_log <- bind_rows(dense_diag, log_scale_diag)
 print(combined_diag_log)
 ```
@@ -771,7 +770,7 @@ fit_std <- stan(file = "radon_model_standardized.stan",
 #### Convergence Checks
 
 Running diagnostics on the fitted model:
-```{r}
+```{r, echo=FALSE}
 std_diag <- run_diagnostics(fit_std, model_name = "standardized")
 ```
 Once again, the diagnostic plots indicate that the chains are well-mixed, with trace plots showing stable, overlapping patterns and autocorrelation plots exhibiting rapid decay. Overall, the density overlays align closely across chains, confirming excellent convergence for the standardized model.
@@ -779,7 +778,7 @@ Once again, the diagnostic plots indicate that the chains are well-mixed, with t
 #### Model Comparison
 
 We then compare the diagnostics from the standardized model to our baseline dense model:
-```{r}
+```{r, echo=FALSE}
 combined_diag_std <- bind_rows(dense_diag, std_diag)
 print(combined_diag_std)
 ```
@@ -806,7 +805,7 @@ fit_robust <- stan(file = "radon_model_robust.stan",
 #### Convergence Checks
 
 Running diagnostics on the fitted model:
-```{r}
+```{r, echo=FALSE}
 robust_diag <- run_diagnostics(fit_robust, model_name = "robust_priors")
 ```
 The trace plots show stable, overlapping “fuzzy caterpillars” for all parameters, indicating good mixing and no signs of drift. The autocorrelation plots reveal a rapid decay, suggesting an efficient sampling process with minimal correlation between successive draws. The density overlays confirm that all chains converge to the same posterior distribution, supporting the conclusion that the robust priors model converges well.
@@ -814,7 +813,7 @@ The trace plots show stable, overlapping “fuzzy caterpillars” for all parame
 #### Model Comparison
 
 We then compare the robust model to our baseline dense model:
-```{r}
+```{r, echo=FALSE}
 combined_diag_robust <- bind_rows(dense_diag, robust_diag)
 print(combined_diag_robust)
 ```
@@ -846,14 +845,10 @@ In the following, we outline a hybrid sampling routine. This routine:
 
 -	For a fixed number of iterations, updates the continuous parameters using Stan (via NUTS) conditional on the current $Z$, and then updates $Z$ion for updating Z via Gibbs sampling. In our model, the likelihood for each observation is given by
 $$y_n \sim \mathcal{N}(m_n + 0.1\, Z_n, \sigma^2),$$
-
 where
-
 $$m_n = \alpha[\text{county}[n]] + \beta \, x[n].$$
-
 Assume that each $Z_n$ has a uniform prior over a finite set $\{1, 2, \ldots, K\}$ (here, $K=3$ since we assume/expect three latent states). Then the full conditional for Z_n is proportional to the likelihood (since the prior is uniform):
 $$P(Z_n = z \mid \cdot) \propto \exp\left\{ -\frac{1}{2\sigma^2} \left(y_n - \left(m_n + 0.1\, z\right)\right)^2 \right\}, \quad z = 1,\ldots, K.$$
-
 To update $Z_n$, we compute this unnormalized probability for each possible value of $z$, normalize these probabilities so they sum to one, and sample from the resulting discrete distribution.
 
 Now, we implement this Gibbs update for $Z$:
@@ -924,26 +919,19 @@ for (i in 1:n_outer_iter) {
                               sigma = sigma_est, Z = Z_current)
 }
 ```
-*Note:* For simplicity, we approximate m_n using mu_alpha and beta (in practice, though we could also extract each alpha from fit_cont), anything else would have taken too much computational time. 
-
-*Note:* The output of this code chunk is set to be hidden - to avoid unnecessary long printing outputs in the html and keep the code concise. Full outputs can be seen in the .rmd file
+*Note:* For simplicity, we approximate $\m_n$ using mu_alpha and beta (in practice, though we could also extract each $\alpha$ from $fit_cont$), anything else would have taken too much computational time. (You can find the output of this code chunk in the $Project.rmd$ file.)
 
 We combine results for analysis:
-```{r, results='hide'}
-hybrid_results_df <- do.call(rbind, lapply(hybrid_results, as.data.frame))
-print(hybrid_results_df)
-```
-<<<<<<< HEAD
-=======
-
-*Note:* The output of this code chunk is set to be hidden - to avoid unnecessary long printing outputs in the html and keep the code concise. Full outputs can be seen in the .rmd file
-
-We can use this dataframe to see how continuous parameters and discrete latent variables evolve across iterations. This can be better seen in the plot below. We observe meaningful variation in all parameters, confirming that the Stan fits are responding to the updated values of Z and that we are successfully exploring the posterior.
-
 ```{r}
+hybrid_results_df <- do.call(rbind, lapply(hybrid_results, as.data.frame))
+```
+
+##### Parameter Trajectories Over Hybrid Sampling Iterations
+
+We can use this dataframe to see how the posterior mean estimates of the continuous parameters ($\mu_\alpha$, $\beta$, and $\sigma$) change at each iteration of the hybrid sampler.
+```{r, echo=FALSE}
 hybrid_results_df$iteration <- 1:nrow(hybrid_results_df)
 
-# Reshape to long format
 hybrid_long <- pivot_longer(
   hybrid_results_df,
   cols = c(mu_alpha, beta, sigma),
@@ -951,7 +939,6 @@ hybrid_long <- pivot_longer(
   values_to = "value"
 )
 
-# Plot all parameter trajectories side by side
 ggplot(hybrid_long, aes(x = iteration, y = value)) +
   geom_line(color = "steelblue") +
   facet_wrap(~ parameter, scales = "free_y") +
@@ -962,64 +949,39 @@ ggplot(hybrid_long, aes(x = iteration, y = value)) +
   ) +
   theme_minimal()
 ```
+We can see how the hybrid sampler transitions through different regions of the posterior space over time, confirming that the sampler is indeed responding to updates in $Z$ and exploring the posterior distribution rather than remaining static.
 
->>>>>>> aa0aca3ba3b3f559b400315d535d61ec28d2afce
 
 #### Convergence Checks for Continuous Parameters
 
 After running the hybrid sampler, we can extract the continuous parameter samples from the final Stan fit and run our automated diagnostics:
-```{r}
+```{r, echo=FALSE}
 final_fit <- fit_cont
 hybrid_diag <- run_diagnostics(final_fit, model_name = "hybrid_continuous")
 ```
-<<<<<<< HEAD
 The chains appear well-mixed, with no discernible trends or drifts. Each chain oscillates around a stable mean, and all four chains overlap substantially, indicating that the hybrid sampler is exploring the posterior distribution thoroughly for the continuous parameters.
 
 The autocorrelation decays relatively quickly, suggesting that successive draws are nearly independent. This is a sign of efficient sampling, especially for parameters like $\tau$ that sometimes exhibit slower mixing in hierarchical models.
 
 Each chain’s posterior distribution overlaps closely for all parameters ($\beta$, $\mu_\alpha$, $\tau$, and $\sigma$), indicating that the sampler converged to the same region of parameter space.
 
-=======
->>>>>>> aa0aca3ba3b3f559b400315d535d61ec28d2afce
-
 #### Model Comparison
 
 Finally, we compare the hybrid model’s continuous component to those from the the best-performing standard model — the centered hierarchical model with a dense mass matrix.
-```{r}
+```{r, echo=FALSE}
 combined_hybrid_diag <- bind_rows(dense_diag, hybrid_diag)
 print(combined_hybrid_diag)
 ```
-<<<<<<< HEAD
-Both models show excellent convergence, with R-hat values close to 1 and high ESS. The hybrid model has a slightly better LOO-ELPD (-1026.804 vs. -1036.783), suggesting improved predictive performance relative to the dense mass matrix model. Overall, these diagnostics confirm that the hybrid approach converges reliably and may offer modest gains in model fit.
-=======
+Based on these results, we can argue that the **hybrid model is the best performing model overall**. It shows a modest but consistent improvement in predictive performance (LOO-ELPD = −1034.4 vs −1037.3) but at the same time maintains excellent convergence diagnostics. However, it is slightly less efficient in terms of sampling (lower ESS) we shall not prioritize sampling efficiency over predictive power when it comes to our model performance here. Furthermore, it offers a richer model structure by including discrete latent variables, potentially capturing residual variation that the baseline dense model does not account for. We shall explore the difference in the final *Discussion* section.
 
-From this final dataframe, we can argue that the **hybrid model is the best performing model overall**. It shows a modest but consistent improvement in predictive performance (LOO-ELPD = −1034.4 vs −1037.3) but at the same time maintains excellent convergence diagnostics. However, it is slightly less efficient in terms of sampling (lower ESS) we shall not prioritize sampling efficiency over predictive power when it comes to our model performance here. Furthermore, it offers a richer model structure by including discrete latent variables, potentially capturing residual variation that the baseline dense model does not account for. We shall explore the difference in the final *Discussion* section.
-
-
-
-
-
-
->>>>>>> aa0aca3ba3b3f559b400315d535d61ec28d2afce
-
-# 6. Discussion 
+# 5. Discussion 
 
 To illustrate the difference in the two final models, we will most importantly plot the posterior of the corresponding parameters. The summary of the point estimates can also be seen below.
 
-<<<<<<< HEAD
-We have to check which one the best overall is and then do the inference based on this 
-
-
-Final Predictions with the best model!? -> the hybrid
-
-Summary of the posterior distributions for the key parameters for the best model.... 
-=======
->>>>>>> aa0aca3ba3b3f559b400315d535d61ec28d2afce
-```{r}
+```{r, echo=FALSE}
 draws_dense <- as_draws_df(fit_dense)
-draws_hybrid <- as_draws_df(final_fit)  # final_fit = last Stan fit from hybrid sampler
+draws_hybrid <- as_draws_df(final_fit)  
 
-# Labels:
 draws_dense$model <- "Dense"
 draws_hybrid$model <- "Hybrid"
 
@@ -1036,9 +998,7 @@ ggplot(draws_long, aes(x = value, fill = model)) +
   labs(title = "Posterior Distributions: Hybrid vs Dense Model",
        x = "Parameter Value", y = "Density") +
   theme_minimal()
-
 ```
-
 
 -	$\beta$: The two posteriors are almost identical. The models both state that the floor level as a strong negative effect on radon.
 
@@ -1048,20 +1008,15 @@ ggplot(draws_long, aes(x = value, fill = model)) +
 
 -	$\tau$ Very similiar again.
 
-```{r}
-#Point estimates:
+```{r, echo=FALSE}
 print(final_fit, pars = c("mu_alpha", "beta", "tau", "sigma"), probs = c(0.025, 0.5, 0.975))
-
 ```
 
 Based on the final hybrid model, we estimate that the average log-radon level (intercept) across counties is approximately 1.30. The negative coefficient on floor suggests that radon levels tend to be significantly lower on upper floors than in basements. The between-county variability (tau) and within-county residual variability (sigma) are are also positive, indicating that counties truly differ from each other and a´houses within a county also vary. This highlights the need for a hierarchical model as ours.
 
 To wrap this up, we can say that we sucessfully improved the model even though it is not by a lot. To deepen this, further research could explore dynamic hierarchical models where the latent structure evolves over time, or incorporate spatial dependencies between counties to better capture geographical patterns in radon exposure.
 
-
-
-# 7. Conclusion
-
+# 6. Conclusion
 
 Our comparative analysis of the dense and hybrid hierarchical Bayesian models for radon exposure has demonstrated that both approaches yield similar estimates, particularly for the floor effect (β), within-county variability (σ), and between-county variability (τ). However, the hybrid model provides a slightly more precise estimation, particularly affecting the intercept (μ_α), which is lower compared to the dense model. This suggests that the latent variable structure in the hybrid model shifts the baseline radon estimates. While the improvements achieved by the hybrid model are not drastic, they suggest promising directions for future research. 
 
