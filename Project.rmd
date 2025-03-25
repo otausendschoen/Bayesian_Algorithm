@@ -48,12 +48,30 @@ rm(list=ls())
 
 []: # Here we will write a brief summary of the project here, outlining the main objectives, methodology, and key findings -alright?
 
+This study presents a hierarchical Bayesian analysis of radon levels using an enhanced Hamiltonian Monte Carlo approach. We compare two modeling strategies—a dense model and a hybrid model—by examining their posterior distributions and key parameter estimates. The results indicate that while most parameters, including the effect of floor level on radon concentration, remain consistent across models, the hybrid model exhibits slightly improved precision (LOO-ELPD = −1034.4 vs −1037.3). Notably, the hybrid model yields a lower estimate for the average log-radon level across counties, suggesting that the inclusion of latent variables shifts the intercept downward. These findings reinforce the benefits of hierarchical modeling in capturing regional variations in radon levels and highlight the potential for further improvements through dynamic or spatial modeling.
 
 # 1. Introduction
 
 []: # see this below more for us to get a better idea of our goal
 
-In this project, we perform a hierarchical Bayesian analysis of the radon dataset. Our objective is to explore the radon levels in houses across various counties and understand how the levels vary both within and between counties. Inspired by Gelman and Hill’s work on hierarchical models, we build on this foundation by implementing an enhanced Hamiltonian Monte Carlo approach in Stan. This method is expected to provide efficient and robust posterior inference for our multilevel model.
+In this project, we perform a hierarchical Bayesian analysis of the radon dataset. This data includes over 900 homes across 85 counties in Minnesota. Our objective is to explore these radon levels in houses across various counties and understand how the levels vary both within and between counties. Inspired by Gelman and Hill’s work on hierarchical models, we build on this foundation by implementing an enhanced Hamiltonian Monte Carlo approach in Stan. Given the natural hierarchical structure—measurements nested within counties—Bayesian hierarchical modeling offers a principled framework for accounting for both within-county and between-county variability.
+This method is thus expected to provide efficient and robust posterior inference for our multilevel model.
+
+As mentioned, we begin with a baseline hierarchical model inspired by Gelman and Hill (2007), which uses a centered parameterization. We then systematically explore a series of algorithmic enhancements aimed at improving convergence, sampling efficiency, and posterior stability. These include:
+
+- Comparing centered vs. non-centered parameterizations;
+
+- Testing diagonal vs. dense mass matrix adaptations;
+
+- Implementing a warm-start strategy using variational inference;
+
+- Exploring reparameterizations (e.g., log-scale, partial non-centering);
+
+- Incorporating robust priors;
+
+- And finally, combining Hamiltonian Monte Carlo (HMC/NUTS) with Gibbs sampling in a hybrid MCMC routine.
+
+Throughout, we assess convergence via diagnostics such as R-hat, Effective Sample Size (ESS), trace plots, and LOO-ELPD for predictive accuracy.
 
 
 # 2. Exploring the Data
@@ -879,7 +897,7 @@ Z_current <- radon_data$Z
 ```
 
 Implementing the updating Procedure:
-```{r}
+```{r, results='hide'}
 for (i in 1:n_outer_iter) {
   cat("Gibbs iteration:", i, "\n")
   
@@ -908,12 +926,15 @@ for (i in 1:n_outer_iter) {
 ```
 *Note:* For simplicity, we approximate m_n using mu_alpha and beta (in practice, though we could also extract each alpha from fit_cont), anything else would have taken too much computational time. 
 
+*Note:* The output of this code chunk is set to be hidden - to avoid unnecessary long printing outputs in the html and keep the code concise. Full outputs can be seen in the .rmd file
+
 We combine results for analysis:
-```{r}
+```{r, results='hide'}
 hybrid_results_df <- do.call(rbind, lapply(hybrid_results, as.data.frame))
 print(hybrid_results_df)
 ```
 
+*Note:* The output of this code chunk is set to be hidden - to avoid unnecessary long printing outputs in the html and keep the code concise. Full outputs can be seen in the .rmd file
 
 We can use this dataframe to see how continuous parameters and discrete latent variables evolve across iterations. This can be better seen in the plot below. We observe meaningful variation in all parameters, confirming that the Stan fits are responding to the updated values of Z and that we are successfully exploring the posterior.
 
@@ -1018,12 +1039,7 @@ To wrap this up, we can say that we sucessfully improved the model even though i
 # 7. Conclusion
 
 
-
-
-
-
-
-
+Our comparative analysis of the dense and hybrid hierarchical Bayesian models for radon exposure has demonstrated that both approaches yield similar estimates, particularly for the floor effect (β), within-county variability (σ), and between-county variability (τ). However, the hybrid model provides a slightly more precise estimation, particularly affecting the intercept (μ_α), which is lower compared to the dense model. This suggests that the latent variable structure in the hybrid model shifts the baseline radon estimates. While the improvements achieved by the hybrid model are not drastic, they suggest promising directions for future research. 
 
 
 # References
