@@ -20,6 +20,8 @@ Supervisor: Prof. Lorenzo Cappello, PhD
 []: # *Importing the relevant libraries:*
 ```{r, echo=FALSE}
 library(gridExtra)
+library(tidyr)
+
 library(rstanarm)
 library(arm)
 library(ggplot2)
@@ -155,7 +157,9 @@ county_stats <- radon %>%
             mean_log_radon = mean(log_radon, na.rm = TRUE), 
             sd_log_radon = sd(log_radon, na.rm = TRUE))
 county_stats
+
 ```
+
 The table shows that each of the 85 counties has a different number of observations (n) and distinct mean and standard deviation of log radon levels. Some counties have very few data points (e.g., 3 or 4), while others have many more (e.g., 52). The mean log radon values also vary considerably across counties, as do their standard deviations. This variation in both sample size and radon levels by county underscores the need for a hierarchical model that can account for county-to-county differences (random effects) while borrowing strength across counties.
 
 # 3. Baseline Hierarchical Model
@@ -528,7 +532,7 @@ For further optimizations, we will run both models (centered and non-centered) a
 
 ##### Checking Dense vs. Default Mass Matrix for Non-Centered Parameterization
 
-Since we have already observed that the centered parameterization performs better with a dense mass matrix adaptation, the next step is to verify whether applying the same dense mass matrix to the non-centered parameterization also yields improvements. In other words, we want to determine if the dense mass matrix adaptation enhances the performance of the non-centered model relative to its default (diagonal) version. If both parameterizations benefit from the dense mass matrix, we can adopt it as our default for future comparisons.
+Since we have already observed that the centered parameterization performs better with a dense mass matrix adaptation, the next step is to verify whether applying the same dense mass matrix to the non-centered parameterization also yields improvements. In other words, we want to determine if the dense mass matrix adaptation enhances the performance of the non-centered model relative to its default (diagonal) version. If both parameterizations benefit from the dense mass matrix, we will adopt it as our default for future comparisons.
 
 To do this, we run the non-centered model using a dense mass matrix adaptation and compare its diagnostics to those from the non-centered model with the default mass matrix. 
 ```{r}
@@ -909,7 +913,33 @@ We combine results for analysis:
 hybrid_results_df <- do.call(rbind, lapply(hybrid_results, as.data.frame))
 print(hybrid_results_df)
 ```
-add interpretation!
+
+
+We can use this dataframe to see how continuous parameters and discrete latent variables evolve across iterations. This can be better seen in the plot below. We observe meaningful variation in all parameters, confirming that the Stan fits are responding to the updated values of Z and that we are successfully exploring the posterior.
+
+```{r}
+hybrid_results_df$iteration <- 1:nrow(hybrid_results_df)
+
+# Reshape to long format
+hybrid_long <- pivot_longer(
+  hybrid_results_df,
+  cols = c(mu_alpha, beta, sigma),
+  names_to = "parameter",
+  values_to = "value"
+)
+
+# Plot all parameter trajectories side by side
+ggplot(hybrid_long, aes(x = iteration, y = value)) +
+  geom_line(color = "steelblue") +
+  facet_wrap(~ parameter, scales = "free_y") +
+  labs(
+    title = "Posterior Mean Estimates Over Hybrid Sampling Iterations",
+    x = "Iteration",
+    y = "Posterior Mean"
+  ) +
+  theme_minimal()
+```
+
 
 #### Convergence Checks for Continuous Parameters
 
@@ -919,16 +949,16 @@ final_fit <- fit_cont
 hybrid_diag <- run_diagnostics(final_fit, model_name = "hybrid_continuous")
 print(hybrid_diag)
 ```
-add interpretation!
 
 #### Model Comparison
 
-Finally, we compare the hybrid model’s continuous component to those from the baseline dense model. 
+Finally, we compare the hybrid model’s continuous component to those from the the best-performing standard model — the centered hierarchical model with a dense mass matrix.
 ```{r}
 combined_hybrid_diag <- bind_rows(dense_diag, hybrid_diag)
 print(combined_hybrid_diag)
 ```
-add interpretation!
+
+From this final dataframe, we can argue that the **hybrid model is the best performing model overall**. It shows a modest but consistent improvement in predictive performance (LOO-ELPD = −1034.4 vs −1037.3) but at the same time maintains excellent convergence diagnostics. However, it is slightly less efficient in terms of sampling (lower ESS) we shall not prioritize sampling efficiency over predictive power when it comes to our model performance here. Furthermore, it offers a richer model structure by including discrete latent variables, potentially capturing residual variation that the baseline dense model does not account for.
 
 
 
