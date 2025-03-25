@@ -20,6 +20,8 @@ Supervisor: Prof. Lorenzo Cappello, PhD
 []: # *Importing the relevant libraries:*
 ```{r, echo=FALSE}
 library(gridExtra)
+library(tidyr)
+
 library(rstanarm)
 library(arm)
 library(ggplot2)
@@ -46,12 +48,30 @@ rm(list=ls())
 
 []: # Here we will write a brief summary of the project here, outlining the main objectives, methodology, and key findings -alright?
 
+This study presents a hierarchical Bayesian analysis of radon levels using an enhanced Hamiltonian Monte Carlo approach. We compare two modeling strategies—a dense model and a hybrid model—by examining their posterior distributions and key parameter estimates. The results indicate that while most parameters, including the effect of floor level on radon concentration, remain consistent across models, the hybrid model exhibits slightly improved precision (LOO-ELPD = −1034.4 vs −1037.3). Notably, the hybrid model yields a lower estimate for the average log-radon level across counties, suggesting that the inclusion of latent variables shifts the intercept downward. These findings reinforce the benefits of hierarchical modeling in capturing regional variations in radon levels and highlight the potential for further improvements through dynamic or spatial modeling.
 
 # 1. Introduction
 
 []: # see this below more for us to get a better idea of our goal
 
-In this project, we perform a hierarchical Bayesian analysis of the radon dataset. Our objective is to explore the radon levels in houses across various counties and understand how the levels vary both within and between counties. Inspired by Gelman and Hill’s work on hierarchical models, we build on this foundation by implementing an enhanced Hamiltonian Monte Carlo approach in Stan. This method is expected to provide efficient and robust posterior inference for our multilevel model.
+In this project, we perform a hierarchical Bayesian analysis of the radon dataset. This data includes over 900 homes across 85 counties in Minnesota. Our objective is to explore these radon levels in houses across various counties and understand how the levels vary both within and between counties. Inspired by Gelman and Hill’s work on hierarchical models, we build on this foundation by implementing an enhanced Hamiltonian Monte Carlo approach in Stan. Given the natural hierarchical structure—measurements nested within counties—Bayesian hierarchical modeling offers a principled framework for accounting for both within-county and between-county variability.
+This method is thus expected to provide efficient and robust posterior inference for our multilevel model.
+
+As mentioned, we begin with a baseline hierarchical model inspired by Gelman and Hill (2007), which uses a centered parameterization. We then systematically explore a series of algorithmic enhancements aimed at improving convergence, sampling efficiency, and posterior stability. These include:
+
+- Comparing centered vs. non-centered parameterizations;
+
+- Testing diagonal vs. dense mass matrix adaptations;
+
+- Implementing a warm-start strategy using variational inference;
+
+- Exploring reparameterizations (e.g., log-scale, partial non-centering);
+
+- Incorporating robust priors;
+
+- And finally, combining Hamiltonian Monte Carlo (HMC/NUTS) with Gibbs sampling in a hybrid MCMC routine.
+
+Throughout, we assess convergence via diagnostics such as R-hat, Effective Sample Size (ESS), trace plots, and LOO-ELPD for predictive accuracy.
 
 
 # 2. Exploring the Data
@@ -155,7 +175,9 @@ county_stats <- radon %>%
             mean_log_radon = mean(log_radon, na.rm = TRUE), 
             sd_log_radon = sd(log_radon, na.rm = TRUE))
 county_stats
+
 ```
+
 The table shows that each of the 85 counties has a different number of observations (n) and distinct mean and standard deviation of log radon levels. Some counties have very few data points (e.g., 3 or 4), while others have many more (e.g., 52). The mean log radon values also vary considerably across counties, as do their standard deviations. This variation in both sample size and radon levels by county underscores the need for a hierarchical model that can account for county-to-county differences (random effects) while borrowing strength across counties.
 
 # 3. Baseline Hierarchical Model
@@ -528,7 +550,7 @@ For further optimizations, we will run both models (centered and non-centered) a
 
 ##### Checking Dense vs. Default Mass Matrix for Non-Centered Parameterization
 
-Since we have already observed that the centered parameterization performs better with a dense mass matrix adaptation, the next step is to verify whether applying the same dense mass matrix to the non-centered parameterization also yields improvements. In other words, we want to determine if the dense mass matrix adaptation enhances the performance of the non-centered model relative to its default (diagonal) version. If both parameterizations benefit from the dense mass matrix, we can adopt it as our default for future comparisons.
+Since we have already observed that the centered parameterization performs better with a dense mass matrix adaptation, the next step is to verify whether applying the same dense mass matrix to the non-centered parameterization also yields improvements. In other words, we want to determine if the dense mass matrix adaptation enhances the performance of the non-centered model relative to its default (diagonal) version. If both parameterizations benefit from the dense mass matrix, we will adopt it as our default for future comparisons.
 
 To do this, we run the non-centered model using a dense mass matrix adaptation and compare its diagnostics to those from the non-centered model with the default mass matrix. 
 ```{r}
@@ -875,7 +897,7 @@ Z_current <- radon_data$Z
 ```
 
 Implementing the updating Procedure:
-```{r}
+```{r, results='hide'}
 for (i in 1:n_outer_iter) {
   cat("Gibbs iteration:", i, "\n")
   
@@ -904,11 +926,44 @@ for (i in 1:n_outer_iter) {
 ```
 *Note:* For simplicity, we approximate m_n using mu_alpha and beta (in practice, though we could also extract each alpha from fit_cont), anything else would have taken too much computational time. 
 
+*Note:* The output of this code chunk is set to be hidden - to avoid unnecessary long printing outputs in the html and keep the code concise. Full outputs can be seen in the .rmd file
+
 We combine results for analysis:
-```{r}
+```{r, results='hide'}
 hybrid_results_df <- do.call(rbind, lapply(hybrid_results, as.data.frame))
 print(hybrid_results_df)
 ```
+<<<<<<< HEAD
+=======
+
+*Note:* The output of this code chunk is set to be hidden - to avoid unnecessary long printing outputs in the html and keep the code concise. Full outputs can be seen in the .rmd file
+
+We can use this dataframe to see how continuous parameters and discrete latent variables evolve across iterations. This can be better seen in the plot below. We observe meaningful variation in all parameters, confirming that the Stan fits are responding to the updated values of Z and that we are successfully exploring the posterior.
+
+```{r}
+hybrid_results_df$iteration <- 1:nrow(hybrid_results_df)
+
+# Reshape to long format
+hybrid_long <- pivot_longer(
+  hybrid_results_df,
+  cols = c(mu_alpha, beta, sigma),
+  names_to = "parameter",
+  values_to = "value"
+)
+
+# Plot all parameter trajectories side by side
+ggplot(hybrid_long, aes(x = iteration, y = value)) +
+  geom_line(color = "steelblue") +
+  facet_wrap(~ parameter, scales = "free_y") +
+  labs(
+    title = "Posterior Mean Estimates Over Hybrid Sampling Iterations",
+    x = "Iteration",
+    y = "Posterior Mean"
+  ) +
+  theme_minimal()
+```
+
+>>>>>>> aa0aca3ba3b3f559b400315d535d61ec28d2afce
 
 #### Convergence Checks for Continuous Parameters
 
@@ -917,49 +972,98 @@ After running the hybrid sampler, we can extract the continuous parameter sample
 final_fit <- fit_cont
 hybrid_diag <- run_diagnostics(final_fit, model_name = "hybrid_continuous")
 ```
+<<<<<<< HEAD
 The chains appear well-mixed, with no discernible trends or drifts. Each chain oscillates around a stable mean, and all four chains overlap substantially, indicating that the hybrid sampler is exploring the posterior distribution thoroughly for the continuous parameters.
 
 The autocorrelation decays relatively quickly, suggesting that successive draws are nearly independent. This is a sign of efficient sampling, especially for parameters like $\tau$ that sometimes exhibit slower mixing in hierarchical models.
 
 Each chain’s posterior distribution overlaps closely for all parameters ($\beta$, $\mu_\alpha$, $\tau$, and $\sigma$), indicating that the sampler converged to the same region of parameter space.
 
+=======
+>>>>>>> aa0aca3ba3b3f559b400315d535d61ec28d2afce
 
 #### Model Comparison
 
-Finally, we compare the hybrid model’s continuous component to those from the baseline dense model. 
+Finally, we compare the hybrid model’s continuous component to those from the the best-performing standard model — the centered hierarchical model with a dense mass matrix.
 ```{r}
 combined_hybrid_diag <- bind_rows(dense_diag, hybrid_diag)
 print(combined_hybrid_diag)
 ```
+<<<<<<< HEAD
 Both models show excellent convergence, with R-hat values close to 1 and high ESS. The hybrid model has a slightly better LOO-ELPD (-1026.804 vs. -1036.783), suggesting improved predictive performance relative to the dense mass matrix model. Overall, these diagnostics confirm that the hybrid approach converges reliably and may offer modest gains in model fit.
+=======
+
+From this final dataframe, we can argue that the **hybrid model is the best performing model overall**. It shows a modest but consistent improvement in predictive performance (LOO-ELPD = −1034.4 vs −1037.3) but at the same time maintains excellent convergence diagnostics. However, it is slightly less efficient in terms of sampling (lower ESS) we shall not prioritize sampling efficiency over predictive power when it comes to our model performance here. Furthermore, it offers a richer model structure by including discrete latent variables, potentially capturing residual variation that the baseline dense model does not account for. We shall explore the difference in the final *Discussion* section.
+
+
+
+
+
+
+>>>>>>> aa0aca3ba3b3f559b400315d535d61ec28d2afce
 
 # 6. Discussion 
 
+To illustrate the difference in the two final models, we will most importantly plot the posterior of the corresponding parameters. The summary of the point estimates can also be seen below.
 
+<<<<<<< HEAD
 We have to check which one the best overall is and then do the inference based on this 
 
 
 Final Predictions with the best model!? -> the hybrid
 
 Summary of the posterior distributions for the key parameters for the best model.... 
+=======
+>>>>>>> aa0aca3ba3b3f559b400315d535d61ec28d2afce
 ```{r}
-#print(fit_XYZ, pars = c("beta", "mu_alpha", "tau", "sigma"), probs = c(0.025, 0.5, 0.975))
+draws_dense <- as_draws_df(fit_dense)
+draws_hybrid <- as_draws_df(final_fit)  # final_fit = last Stan fit from hybrid sampler
+
+# Labels:
+draws_dense$model <- "Dense"
+draws_hybrid$model <- "Hybrid"
+
+draws_combined <- rbind(
+  draws_dense[, c("mu_alpha", "beta", "sigma", "tau", "model")],
+  draws_hybrid[, c("mu_alpha", "beta", "sigma", "tau", "model")]
+)
+
+draws_long <- pivot_longer(draws_combined, cols = -model, names_to = "parameter", values_to = "value")
+
+ggplot(draws_long, aes(x = value, fill = model)) +
+  geom_density(alpha = 0.5) +
+  facet_wrap(~ parameter, scales = "free", ncol = 2) +
+  labs(title = "Posterior Distributions: Hybrid vs Dense Model",
+       x = "Parameter Value", y = "Density") +
+  theme_minimal()
+
 ```
 
-.....
 
-Some discussion about everything we have done.
+-	$\beta$: The two posteriors are almost identical. The models both state that the floor level as a strong negative effect on radon.
+
+-	$\sigma$: Again, very similar results but maybe slightly higher precision for the Hybrid one. 
+
+-	$\mu_\alpha$: Interestingly, this is the only parameter where we see a definite difference. The hybrid model yields a lower estimate than the dense model. The latent variable $z$ appears to be shifting the intercept downords. 
+
+-	$\tau$ Very similiar again.
+
+```{r}
+#Point estimates:
+print(final_fit, pars = c("mu_alpha", "beta", "tau", "sigma"), probs = c(0.025, 0.5, 0.975))
+
+```
+
+Based on the final hybrid model, we estimate that the average log-radon level (intercept) across counties is approximately 1.30. The negative coefficient on floor suggests that radon levels tend to be significantly lower on upper floors than in basements. The between-county variability (tau) and within-county residual variability (sigma) are are also positive, indicating that counties truly differ from each other and a´houses within a county also vary. This highlights the need for a hierarchical model as ours.
+
+To wrap this up, we can say that we sucessfully improved the model even though it is not by a lot. To deepen this, further research could explore dynamic hierarchical models where the latent structure evolves over time, or incorporate spatial dependencies between counties to better capture geographical patterns in radon exposure.
+
 
 
 # 7. Conclusion
 
 
-
-
-
-
-
-
+Our comparative analysis of the dense and hybrid hierarchical Bayesian models for radon exposure has demonstrated that both approaches yield similar estimates, particularly for the floor effect (β), within-county variability (σ), and between-county variability (τ). However, the hybrid model provides a slightly more precise estimation, particularly affecting the intercept (μ_α), which is lower compared to the dense model. This suggests that the latent variable structure in the hybrid model shifts the baseline radon estimates. While the improvements achieved by the hybrid model are not drastic, they suggest promising directions for future research. 
 
 
 # References
