@@ -18,14 +18,10 @@ We analyze household radon measurements using a multilevel model to:
 The primary model follows this form:
 
 - **Observation model**:
-  $
-  y_i \sim \mathcal{N}(\alpha_{j[i]} + \beta x_i, \sigma_y)
-  $
+  $y_i \sim \mathcal{N}(\alpha_{j[i]} + \beta x_i, \sigma_y)$
 
 - **County-level intercepts**:
-  $
-  \alpha_j \sim \mathcal{N}(\mu_\alpha, \sigma_\alpha)
-  $
+  $\alpha_j \sim \mathcal{N}(\mu_\alpha, \sigma_\alpha)$
 
 Where:
 - $x_i$: binary indicator for basement
